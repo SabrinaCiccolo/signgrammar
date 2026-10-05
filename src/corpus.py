@@ -1,6 +1,8 @@
-"""ASLLRP SignStream 3 corpus on the public DAI site: caches every page of the unfiltered utterance search and parses
-glosses and nonmanual tiers. One request at a time, with a delay; every page is cached."""
+"""ASLLRP SignStream 3 corpus on the public DAI site: `fetch` caches every page of the unfiltered utterance search,
+`parse` reads glosses and nonmanual tiers, `freeze` writes the labelled utterance table, `download` fetches the front
+videos. One request at a time, with a delay; every page is cached."""
 import argparse
+import csv
 import hashlib
 import html
 import json
@@ -10,12 +12,15 @@ import urllib.parse
 
 import requests
 
-from common import CORPUS, WORK
+from common import CORPUS, ITEMS, UTTERANCES, VIDEOS, WORK
 
 PAGES = WORK / "cache/dai"
 BASE = "https://dai.cs.rutgers.edu/dai/s/"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 SIGNERS = ("Ben", "Cory", "Jonathan", "Rachel", "P02", "P03")
+ANNOTATED = ("Ben", "Cory", "Jonathan", "Rachel")  # P02 and P03 carry almost no grammatical tiers
+GRAMMAR = {"yn": "y/n question", "wh": "wh question", "neg": "negative", "cond": "cond/when",
+           "topic": "topic/focus", "rhq": "rhq question"}
 
 
 def get(url, delay):
@@ -101,10 +106,79 @@ def parse(delay):
     print(f"{len(rows)} utterances -> {CORPUS}")
 
 
+def labels(r):
+    t = r["tiers"]
+    lab = {k: tier in t for k, tier in GRAMMAR.items()}
+    lab["plain"] = not any(lab.values())
+    hands = " ".join(v for v in (r.get("dh"), r.get("ndh")) if isinstance(v, str))
+    lab["ix2p"] = "IX-2p" in hands  # the sign YOU
+    lab["qm"] = "QMwg" in hands  # manual question mark (wiggle)
+    lab["fs"] = "fs-" in hands  # fingerspelling
+    return lab
+
+
+def freeze():
+    """Utterances of the annotated signers with 0/1 labels; in_benchmark = clip of ASL-MTP."""
+    import pandas as pd
+
+    df = pd.read_json(CORPUS, lines=True)
+    df = df[df.signer.isin(ANNOTATED)].reset_index(drop=True)
+    lab = pd.DataFrame([labels(r) for r in df.to_dict("records")]).astype(int)
+    bench = pd.read_csv(ITEMS)
+    out = pd.DataFrame(dict(name=df.name, signer=df.signer, scene=df.name.str.replace(r"-U-\d+$", "", regex=True),
+                            dai_id=df.dai_id, in_benchmark=df.dai_id.isin(bench.dai_id).astype(int)))
+    out = pd.concat([out, lab], axis=1).sort_values(["signer", "name"])
+    out.to_csv(UTTERANCES, index=False)
+    print(f"{len(out)} utterances ({out.in_benchmark.sum()} in ASL-MTP) -> {UTTERANCES}")
+
+
+def download(delay):
+    import cv2
+    import pandas as pd
+
+    VIDEOS.mkdir(parents=True, exist_ok=True)
+    log_path = WORK / "download.csv"
+    new_log = not log_path.exists()
+    log = open(log_path, "a", newline="")
+    w = csv.writer(log)
+    if new_log:
+        w.writerow(["dai_id", "status", "bytes", "frames", "fps", "width", "height"])
+    s = requests.Session()
+    s.headers["User-Agent"] = UA
+    n_get = n_skip = n_fail = 0
+    for i in pd.read_csv(UTTERANCES).dai_id:
+        path = VIDEOS / f"{i}.mp4"
+        if path.exists():
+            n_skip += 1
+            continue
+        r = s.get(f"https://dai.cs.rutgers.edu//ss3front/{i}.mp4", timeout=60)
+        time.sleep(delay)
+        if r.status_code != 200 or not r.headers.get("Content-Type", "").startswith("video"):
+            n_fail += 1
+            w.writerow([i, r.status_code, len(r.content), "", "", "", ""])
+            log.flush()
+            continue
+        tmp = path.with_suffix(".part")
+        tmp.write_bytes(r.content)
+        cap = cv2.VideoCapture(str(tmp))
+        meta = [int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), round(cap.get(cv2.CAP_PROP_FPS), 2),
+                int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))]
+        cap.release()
+        tmp.rename(path)
+        n_get += 1
+        w.writerow([i, 200, len(r.content), *meta])
+        log.flush()
+        if n_get % 100 == 0:
+            print(f"downloaded {n_get}, skipped {n_skip}, failed {n_fail}", flush=True)
+    print(f"done: downloaded {n_get}, skipped {n_skip} (already present), failed {n_fail}; log {log_path}")
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["parse", "freeze", "download"])
     ap.add_argument("--delay", type=float, default=1.5, help="seconds between requests")
-    parse(ap.parse_args().delay)
+    args = ap.parse_args()
+    {"parse": lambda: parse(args.delay), "freeze": freeze, "download": lambda: download(args.delay)}[args.cmd]()
 
 
 if __name__ == "__main__":
