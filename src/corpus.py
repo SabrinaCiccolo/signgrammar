@@ -62,7 +62,14 @@ def pages(delay):
 
 def spans(rest):
     """Underline spans [first col, last col, value]."""
-    return [[m.start(), m.end() - 1, m.group(0).lstrip("_")] for m in re.finditer(r"\S+", rest)]
+    out = []
+    for m in re.finditer(r"\S+", rest):
+        tok = m.group(0)
+        if out and not tok.startswith(("_", "+", "-")) and rest[m.start() - 2] != " ":
+            out[-1][1], out[-1][2] = m.end() - 1, out[-1][2] + " " + tok
+        else:
+            out.append([m.start(), m.end() - 1, tok.lstrip("_")])
+    return out
 
 
 def parse_pre(pre):
