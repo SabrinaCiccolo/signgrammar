@@ -1,4 +1,13 @@
+torch==2.2.2
+torchvision==0.17.2
+mediapipe==0.10.14
+ultralytics==8.2.74
+decord==0.6.0
 numpy==1.26.4
 opencv-python==4.10.0.84
+opencv-contrib-python==4.10.0.84
+facenet-pytorch==2.6.0
+webvtt-py==0.5.1
 pandas==2.3.3
 requests==2.34.2
+huggingface-hub==2.2.0
