@@ -1,0 +1,15 @@
+torch==2.3.0
+torchvision==0.18.0
+numpy==1.26.4
+antlr4-python3-runtime==4.8
+bitarray==2.9.2
+cython==3.0.10
+hydra-core==1.0.7
+omegaconf==2.0.6
+sacrebleu==2.4.2
+regex
+tabulate
+scikit-learn
+pandas
+setuptools
+wheel
