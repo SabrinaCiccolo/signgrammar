@@ -10,8 +10,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from joblib import Parallel, delayed  # noqa: E402
 
-from common import (CACHE, FEATS, NULL_FEATS, ROOT, TASKS, center_by, folds, loso_scores,  # noqa: E402
-                    rows_for, setup, utterances, zsig)
+from common import (CACHE, FEATS, NULL_FEATS, ROOT, TASKS, center_by, folds, length_matched,  # noqa: E402
+                    loso_scores, rows_for, setup, utterances, zsig)
 
 
 def cache():
@@ -37,9 +37,14 @@ def cache():
     print(f"-> {CACHE}")
 
 
-def probe_job(task, feature, variant, X, y, sig, folds):
+def probe_job(task, feature, variant, X, y, sig, folds, length):
     if variant == "centred":
         return rows_for(task, feature, variant, y, loso_scores(center_by(X, sig), y, sig, folds), sig, folds)
+    if variant == "length-matched":
+        f = np.isin(sig, folds)
+        keep = np.flatnonzero(f)[length_matched(y[f], sig[f], length[f])]
+        Xk, yk, sk = center_by(X[keep], sig[keep]), y[keep], sig[keep]
+        return rows_for(task, feature, variant, yk, loso_scores(Xk, yk, sk, folds), sk, folds)
     if variant == "shuffled":
         rng = np.random.default_rng(0)
         ys = y.copy()
@@ -52,13 +57,15 @@ def probe_job(task, feature, variant, X, y, sig, folds):
 def run(procs):
     z, u, sig, feats = setup()
     out = ROOT / "results/layer_probes.csv"
+    length = z["length"]
     jobs = []
     for t in TASKS:
         y = u[t].to_numpy()
         for f, X in feats.items():
-            jobs.append(delayed(probe_job)(t, f, "centred", X, y, sig, folds(t)))
+            for v in ["centred", "length-matched"]:
+                jobs.append(delayed(probe_job)(t, f, v, X, y, sig, folds(t), length))
         for f in NULL_FEATS:
-            jobs.append(delayed(probe_job)(t, f, "shuffled", feats[f], y, sig, folds(t)))
+            jobs.append(delayed(probe_job)(t, f, "shuffled", feats[f], y, sig, folds(t), length))
         jobs.append(delayed(rows_for)(t, "pitch_mean", "untrained, z within signer", y, zsig(z["pitch"], sig), sig,
                                       folds(t)))
     print(f"{len(jobs)} jobs on {procs} processes", flush=True)

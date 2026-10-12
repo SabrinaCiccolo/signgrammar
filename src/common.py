@@ -93,6 +93,20 @@ def center_by(X, groups):
     return X
 
 
+def length_matched(y, signers, length, tol=10):
+    """Within signer, pair each clip of the smaller class with the unused clip of nearest length (within tol frames)."""
+    keep = []
+    for s in np.unique(signers):
+        a, b = (np.flatnonzero((signers == s) & (y == c)) for c in (1, 0))
+        small, big = (a, list(b)) if len(a) <= len(b) else (b, list(a))
+        for i in sorted(small, key=lambda i: length[i]):
+            j = min(big, key=lambda j: abs(length[j] - length[i]))
+            if abs(length[j] - length[i]) <= tol:
+                keep += [i, j]
+                big.remove(j)
+    return np.array(keep)
+
+
 def zsig(v, sig):
     v = np.where(np.isfinite(v), v, np.nan)
     return pd.Series(v).groupby(sig).transform(lambda x: (x - x.mean()) / x.std()).fillna(0).to_numpy()
