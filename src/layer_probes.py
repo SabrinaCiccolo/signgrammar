@@ -1,5 +1,5 @@
 """Per-layer linear probes for six grammatical functions on SHuBERT states.
-`cache` builds clip features; `run` writes results/layer_probes.csv."""
+`cache` builds clip features and head pitch decoded per frame from each layer; `run` writes results/layer_probes.csv."""
 import os
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -9,14 +9,16 @@ import warnings  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from joblib import Parallel, delayed  # noqa: E402
+from sklearn.linear_model import RidgeCV  # noqa: E402
 
-from common import (CACHE, FEATS, NULL_FEATS, ROOT, TASKS, center_by, folds, length_matched,  # noqa: E402
+from common import (CACHE, FEATS, LAYERS, NULL_FEATS, ROOT, TASKS, center_by, folds, length_matched,  # noqa: E402
                     loso_scores, rows_for, setup, utterances, zsig)
 
 
 def cache():
     u = utterances()
     clip = {k: [] for k in ["shubert", "dino_face", "dino_hands", "mp_face", "pitch", "length"]}
+    frames, target, fsig, fclip = [], [], [], []
     for r in u.itertuples():
         h = np.load(FEATS / "shubert" / f"{r.dai_id}.npy")
         d = np.load(FEATS / "dino_face" / f"{r.dai_id}_face.npy")[::2]
@@ -33,8 +35,31 @@ def cache():
                                                    np.nanmean(z["blend"], 0) if z["blend"].size else np.full(52, np.nan)]))
             clip["pitch"].append(np.nanmean(pitch))
         clip["length"].append(len(pitch))
-    np.savez(CACHE, dai_id=u.dai_id.to_numpy(), **{k: np.array(v, np.float32) for k, v in clip.items()})
+        sel = np.isfinite(pitch[::2])
+        frames.append(h[:, sel])
+        target.append(pitch[::2][sel])
+        fsig += [r.signer] * sel.sum()
+        fclip += [r.dai_id] * sel.sum()
+    print(f"{len(fclip)} frames with a face", flush=True)
+    decoded = decode(frames, np.concatenate(target), np.array(fsig), np.array(fclip), u)
+    np.savez(CACHE, dai_id=u.dai_id.to_numpy(), decoded_pitch=decoded,
+             **{k: np.array(v, np.float32) for k, v in clip.items()})
     print(f"-> {CACHE}")
+
+
+def decode(frames, target, sig, clip, u):
+    """Per-frame ridge decoder of head pitch from each layer, leave-one-signer-out; clip mean of the prediction."""
+    t = center_by(target[:, None], sig)[:, 0]
+    out = []
+    for k in range(LAYERS):
+        F = center_by(np.concatenate([h[k] for h in frames]).astype(np.float32), sig)
+        pred = np.zeros_like(t)
+        for s in np.unique(sig):
+            tr, te = sig != s, sig == s
+            pred[te] = RidgeCV(alphas=np.logspace(-1, 5, 7)).fit(F[tr], t[tr]).predict(F[te])
+        out.append(pd.Series(pred).groupby(clip).mean().reindex(u.dai_id).to_numpy())
+        print(f"L{k} pitch decoded", flush=True)
+    return np.array(out, np.float32).T
 
 
 def probe_job(task, feature, variant, X, y, sig, folds, length):
@@ -66,8 +91,10 @@ def run(procs):
                 jobs.append(delayed(probe_job)(t, f, v, X, y, sig, folds(t), length))
         for f in NULL_FEATS:
             jobs.append(delayed(probe_job)(t, f, "shuffled", feats[f], y, sig, folds(t), length))
-        jobs.append(delayed(rows_for)(t, "pitch_mean", "untrained, z within signer", y, zsig(z["pitch"], sig), sig,
-                                      folds(t)))
+        untrained = {"pitch_mean": z["pitch"]}
+        untrained |= {f"decoded_shubert_L{k}:pitch": z["decoded_pitch"][:, k] for k in range(LAYERS)}
+        for name, v in untrained.items():
+            jobs.append(delayed(rows_for)(t, name, "untrained, z within signer", y, zsig(v, sig), sig, folds(t)))
     print(f"{len(jobs)} jobs on {procs} processes", flush=True)
     df = pd.DataFrame([r for x in Parallel(n_jobs=procs, verbose=5)(jobs) for r in x])
     null = df[df.variant == "shuffled"].groupby("task").hi.max()
