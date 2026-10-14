@@ -17,6 +17,10 @@ from common import (CACHE, FEATS, LAYERS, NULL_FEATS, ROOT, TASKS, center_by, fo
 
 def cache():
     u = utterances()
+    ok = [all((FEATS / p).exists() for p in (f"shubert/{i}.npy", f"head_pose/{i}.npz", f"dino_face/{i}_face.npy"))
+          for i in u.dai_id]
+    print(f"{sum(ok)}/{len(u)} utterances with features")
+    u = u[ok].reset_index(drop=True)
     clip = {k: [] for k in ["shubert", "dino_face", "dino_hands", "mp_face", "pitch", "length"]}
     frames, target, fsig, fclip = [], [], [], []
     for r in u.itertuples():
