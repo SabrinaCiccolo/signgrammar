@@ -1,5 +1,6 @@
 """Per-layer linear probes for six grammatical functions on SHuBERT states.
-`cache` builds clip features and head pitch decoded per frame from each layer; `run` writes results/layer_probes.csv."""
+`cache` builds clip features and head pitch decoded per frame from each layer; `run` writes results/layer_probes.csv.
+With `--states DIR` (encoder states with input streams masked) it caches and probes those states only."""
 import os
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -11,7 +12,7 @@ import pandas as pd  # noqa: E402
 from joblib import Parallel, delayed  # noqa: E402
 from sklearn.linear_model import RidgeCV  # noqa: E402
 
-from common import (CACHE, FEATS, LAYERS, NULL_FEATS, ROOT, TASKS, center_by, folds, length_matched,  # noqa: E402
+from common import (CACHE, FEATS, LAYERS, NULL_FEATS, ROOT, TASKS, WORK, center_by, folds, length_matched,  # noqa: E402
                     loso_scores, rows_for, setup, utterances, zsig)
 
 
@@ -66,6 +67,13 @@ def decode(frames, target, sig, clip, u):
     return np.array(out, np.float32).T
 
 
+def cache_states(name):
+    ids = np.load(CACHE)["dai_id"]
+    X = np.stack([np.load(FEATS / name / f"{i}.npy").astype(np.float32).mean(1) for i in ids])
+    np.savez(WORK / f"clip_features_{name}.npz", dai_id=ids, states=X)
+    print(f"{len(X)} clips -> {WORK / f'clip_features_{name}.npz'}")
+
+
 def probe_job(task, feature, variant, X, y, sig, folds, length):
     if variant == "centred":
         return rows_for(task, feature, variant, y, loso_scores(center_by(X, sig), y, sig, folds), sig, folds)
@@ -83,9 +91,14 @@ def probe_job(task, feature, variant, X, y, sig, folds, length):
     raise ValueError(variant)
 
 
-def run(procs):
+def run(procs, states=None):
     z, u, sig, feats = setup()
     out = ROOT / "results/layer_probes.csv"
+    if states:
+        s = np.load(WORK / f"clip_features_{states}.npz")
+        assert (s["dai_id"] == z["dai_id"]).all()
+        feats = {f"shubert_L{k}": s["states"][:, k] for k in range(LAYERS)}
+        out = ROOT / f"results/layer_probes_{states.removeprefix('shubert_')}.csv"
     length = z["length"]
     jobs = []
     for t in TASKS:
@@ -94,11 +107,13 @@ def run(procs):
             for v in ["centred", "length-matched"]:
                 jobs.append(delayed(probe_job)(t, f, v, X, y, sig, folds(t), length))
         for f in NULL_FEATS:
-            jobs.append(delayed(probe_job)(t, f, "shuffled", feats[f], y, sig, folds(t), length))
-        untrained = {"pitch_mean": z["pitch"]}
-        untrained |= {f"decoded_shubert_L{k}:pitch": z["decoded_pitch"][:, k] for k in range(LAYERS)}
-        for name, v in untrained.items():
-            jobs.append(delayed(rows_for)(t, name, "untrained, z within signer", y, zsig(v, sig), sig, folds(t)))
+            if f in feats:
+                jobs.append(delayed(probe_job)(t, f, "shuffled", feats[f], y, sig, folds(t), length))
+        if not states:
+            untrained = {"pitch_mean": z["pitch"]}
+            untrained |= {f"decoded_shubert_L{k}:pitch": z["decoded_pitch"][:, k] for k in range(LAYERS)}
+            for name, v in untrained.items():
+                jobs.append(delayed(rows_for)(t, name, "untrained, z within signer", y, zsig(v, sig), sig, folds(t)))
     print(f"{len(jobs)} jobs on {procs} processes", flush=True)
     df = pd.DataFrame([r for x in Parallel(n_jobs=procs, verbose=5)(jobs) for r in x])
     null = df[df.variant == "shuffled"].groupby("task").hi.max()
@@ -115,8 +130,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["cache", "run"])
     ap.add_argument("--procs", type=int, default=os.cpu_count())
+    ap.add_argument("--states", help="encoder states folder under the features directory")
     args = ap.parse_args()
-    cache() if args.cmd == "cache" else run(args.procs)
+    if args.cmd == "cache":
+        cache_states(args.states) if args.states else cache()
+    else:
+        run(args.procs, args.states)
 
 
 if __name__ == "__main__":

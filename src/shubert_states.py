@@ -1,5 +1,6 @@
 """Per-layer SHuBERT states for every clip: [13, T, 768] float16, layer 0 = fused input projection. Frames are
-subsampled 2x (29.97 -> about 15 fps, as in pretraining)."""
+subsampled 2x (29.97 -> about 15 fps, as in pretraining). `--drop` replaces input streams with the learned mask
+embedding after their projection."""
 import argparse
 import sys
 
@@ -22,6 +23,11 @@ def load_model(ckpt):
     return model.eval().cuda()
 
 
+def mask_hooks(model, drop):
+    return [getattr(model, f"{k}_proj").register_forward_hook(lambda m, i, o: model.mask_emb[0].expand_as(o))
+            for k in drop]
+
+
 @torch.no_grad()
 def layer_states(model, streams):
     T = len(streams["face"])
@@ -38,10 +44,13 @@ def layer_states(model, streams):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.parse_args()
-    out = FEATS / "shubert"
+    ap.add_argument("--out", default="shubert", help="output folder under the features directory")
+    ap.add_argument("--drop", nargs="+", default=[], choices=list(STREAMS), help="streams to mask")
+    args = ap.parse_args()
+    out = FEATS / args.out
     out.mkdir(exist_ok=True)
     model = load_model(MODELS / "checkpoint_836_400000.pt")
+    mask_hooks(model, args.drop)
     ids = sorted(p.name[: -len("_face.npy")] for p in (FEATS / "dino_face").glob("*_face.npy"))
     done = skipped = 0
     for i in ids:
