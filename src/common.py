@@ -86,6 +86,14 @@ def rows_for(task, feature, variant, y, sc, sig, folds):
     return out
 
 
+def shuffle_within(y, sig, seed=0):
+    rng = np.random.default_rng(seed)
+    y = y.copy()
+    for s in np.unique(sig):
+        y[sig == s] = rng.permutation(y[sig == s])
+    return y
+
+
 def center_by(X, groups):
     X = X.copy()
     for g in np.unique(groups):
@@ -117,3 +125,14 @@ def impute(X):
     m = np.isnan(X)
     X[m] = np.take(np.nanmean(X, 0), np.nonzero(m)[1])
     return np.nan_to_num(X)
+
+
+def significance(df, null_variant):
+    """Null upper bound per task = highest CI upper bound with shuffled labels; significant above it and above 0.5."""
+    null = df[df.variant == null_variant].groupby("task").hi.max()
+    df["null_hi"] = df.task.map(null).to_numpy()
+    untrained = df.variant.str.startswith("untrained")
+    df["significant"] = pd.Series(np.where(untrained, (df.lo > 0.5) | (df.hi < 0.5),
+                                           df.lo > np.maximum(0.5, df.null_hi)), dtype=object)
+    df.loc[(df.signer != "pooled") | (df.variant == null_variant), "significant"] = np.nan
+    return df

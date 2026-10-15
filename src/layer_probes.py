@@ -13,7 +13,7 @@ from joblib import Parallel, delayed  # noqa: E402
 from sklearn.linear_model import RidgeCV  # noqa: E402
 
 from common import (CACHE, FEATS, LAYERS, NULL_FEATS, ROOT, TASKS, WORK, center_by, folds, length_matched,  # noqa: E402
-                    loso_scores, rows_for, setup, utterances, zsig)
+                    loso_scores, rows_for, setup, shuffle_within, significance, utterances, zsig)
 
 
 def cache():
@@ -83,10 +83,7 @@ def probe_job(task, feature, variant, X, y, sig, folds, length):
         Xk, yk, sk = center_by(X[keep], sig[keep]), y[keep], sig[keep]
         return rows_for(task, feature, variant, yk, loso_scores(Xk, yk, sk, folds), sk, folds)
     if variant == "shuffled":
-        rng = np.random.default_rng(0)
-        ys = y.copy()
-        for s in np.unique(sig):
-            ys[sig == s] = rng.permutation(y[sig == s])
+        ys = shuffle_within(y, sig)
         return rows_for(task, feature, variant, ys, loso_scores(center_by(X, sig), ys, sig, folds), sig, folds)[:1]
     raise ValueError(variant)
 
@@ -116,13 +113,7 @@ def run(procs, states=None):
                 jobs.append(delayed(rows_for)(t, name, "untrained, z within signer", y, zsig(v, sig), sig, folds(t)))
     print(f"{len(jobs)} jobs on {procs} processes", flush=True)
     df = pd.DataFrame([r for x in Parallel(n_jobs=procs, verbose=5)(jobs) for r in x])
-    null = df[df.variant == "shuffled"].groupby("task").hi.max()
-    df["null_hi"] = df.task.map(null).to_numpy()
-    untrained = df.variant.str.startswith("untrained")
-    df["significant"] = pd.Series(np.where(untrained, (df.lo > 0.5) | (df.hi < 0.5),
-                                           df.lo > np.maximum(0.5, df.null_hi)), dtype=object)
-    df.loc[(df.signer != "pooled") | (df.variant == "shuffled"), "significant"] = np.nan
-    df.round(3).to_csv(out, index=False)
+    significance(df, "shuffled").round(3).to_csv(out, index=False)
     print(f"{len(df)} rows -> {out.relative_to(ROOT)}")
 
 
