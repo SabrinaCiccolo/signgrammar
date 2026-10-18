@@ -11,5 +11,7 @@ webvtt-py==0.5.1
 pandas==2.3.3
 scikit-learn==1.7.2
 joblib==1.6.0
+matplotlib==3.10.9
+pillow==10.2.0
 requests==2.34.2
 huggingface-hub==2.2.0
