@@ -1,5 +1,5 @@
 """Yes/no vs declarative choice on the ASL-MTP clips: published SHuBERT + ByT5 preference, a detector read from SHuBERT
-layers, and their fusion. Each signer is tested once with layer, weight and threshold tuned on the
+layers, measured head pitch, and their fusion. Each signer is tested once with layer, weight and threshold tuned on the
 other two -> results/repair.csv."""
 import os
 
@@ -14,10 +14,10 @@ from sklearn.model_selection import StratifiedGroupKFold  # noqa: E402
 from sklearn.pipeline import make_pipeline  # noqa: E402
 from sklearn.preprocessing import StandardScaler  # noqa: E402
 
-from common import ITEMS, LAYERS, PUBLISHED, ROOT, YN_SIGNERS, center_by, setup  # noqa: E402
+from common import ITEMS, LAYERS, PUBLISHED, ROOT, YN_SIGNERS, center_by, setup, zsig  # noqa: E402
 
 LAMBDAS = np.concatenate([[0], np.logspace(-3, 1, 17)])
-ROWS = ["published", "published_offset", "detector", "fused"]
+ROWS = ["published", "published_offset", "detector", "fused", "pitch_detector", "pitch_fused"]
 
 
 def items():
@@ -72,7 +72,7 @@ def tune(p, s, m):
     return best[1], best[2]
 
 
-def rotation(T, tuning, scores, y, sig, it, pos):
+def rotation(T, tuning, scores, y, sig, it, pos, pitch):
     """Layer, lambda and b from the tuning signers only (nested scores); predictions for T's items."""
     keep = np.isin(sig, tuning)
     auc = []
@@ -93,6 +93,11 @@ def rotation(T, tuning, scores, y, sig, it, pos):
     te["published_offset"] = te.p > best_b(p, m)[0]
     te["detector"] = s > best_b(s_tu, m)[0]
     te["fused"] = te.p + lam * s > b
+    sp_tu = np.array([pitch[r.signer][pos[r.signer][r.dai_id]] for r in tu.itertuples()])
+    sp = np.array([pitch[T][pos[T][d]] for d in te.dai_id])
+    lam_p, b_p = tune(p, sp_tu, m)
+    te["pitch_detector"] = sp > best_b(sp_tu, m)[0]
+    te["pitch_fused"] = te.p + lam_p * sp > b_p
     return te
 
 
@@ -120,6 +125,8 @@ def report(te, group, cols):
 
 def main():
     z, u, sig, feats = setup()
+    pz = zsig(z["pitch"], sig)
+    pitch = {s: pz[sig == s] for s in np.unique(sig)}
     scene = u.scene.to_numpy()
     pos = {s: {d: k for k, d in enumerate(u.dai_id[sig == s])} for s in np.unique(sig)}
     X = [center_by(feats[f"shubert_L{L}"], sig) for L in range(LAYERS)]
@@ -130,7 +137,7 @@ def main():
     jobs = [(tr, L) for tr in sorted(sets) for L in range(LAYERS)]
     print(len(jobs), "detectors", flush=True)
     scores = dict(zip(jobs, Parallel(n_jobs=-1)(delayed(detector)(X[L], y, sig, scene, list(tr)) for tr, L in jobs)))
-    tes = [rotation(T, tun, scores, y, sig, it, pos) for T, tun in rots]
+    tes = [rotation(T, tun, scores, y, sig, it, pos, pitch) for T, tun in rots]
     rows = [r for (T, _), te in zip(rots, tes) for r in report(te, T, ROWS)]
     rows += report(pd.concat(tes), "pooled", ROWS)
     out = pd.DataFrame(rows).round(3)
