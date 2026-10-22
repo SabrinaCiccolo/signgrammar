@@ -1,4 +1,5 @@
 """Paths, the utterance table, cached clip features and the leave-one-signer-out probe."""
+import os
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / "work"
+WORK = Path(os.environ.get("SIGNGRAMMAR_WORK", ROOT / "work"))
 VIDEOS = WORK / "videos"
 FEATS = WORK / "features"
 MODELS = WORK / "models"
