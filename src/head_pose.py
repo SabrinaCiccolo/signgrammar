@@ -1,5 +1,5 @@
 """3D head pose (pitch, yaw, roll from the MediaPipe facial transformation matrix) and the 52 face blendshapes per
-frame of each signer crop -> <features>/head_pose/<id>.npz."""
+frame of each signer crop -> <features>/<out>/<id>.npz. `--scale` downscales the frames first."""
 import argparse
 import os
 from multiprocessing import Pool
@@ -16,7 +16,7 @@ def euler(m):
 
 
 def one(args):
-    video, out = args
+    video, out, scale = args
     import cv2
     import mediapipe as mp
     from mediapipe.tasks.python import BaseOptions, vision
@@ -32,6 +32,8 @@ def one(args):
         ok, frame = cap.read()
         if not ok:
             break
+        if scale > 1:
+            frame = cv2.resize(frame, None, fx=1 / scale, fy=1 / scale, interpolation=cv2.INTER_AREA)
         r = fl.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         if r.face_blendshapes:
             names = [c.category_name for c in r.face_blendshapes[0]]
@@ -49,10 +51,12 @@ def one(args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--procs", type=int, default=16)
+    ap.add_argument("--scale", type=float, default=1, help="downscale frames by this factor (INTER_AREA)")
+    ap.add_argument("--out", default="head_pose", help="output folder under the features directory")
     args = ap.parse_args()
-    out = FEATS / "head_pose"
+    out = FEATS / args.out
     out.mkdir(parents=True, exist_ok=True)
-    jobs = [(v, out / f"{v.stem}.npz") for v in sorted((FEATS / "clips_bbox").glob("*.mp4"))]
+    jobs = [(v, out / f"{v.stem}.npz", args.scale) for v in sorted((FEATS / "clips_bbox").glob("*.mp4"))]
     os.environ["OMP_NUM_THREADS"] = "1"
     with Pool(args.procs) as pool:
         done = sum(pool.imap_unordered(one, jobs, chunksize=4))
