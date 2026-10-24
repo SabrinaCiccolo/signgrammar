@@ -4,6 +4,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +102,43 @@ def title(fig, ax, text, sub):
     ax.text(0, 1.02, sub, transform=ax.transAxes, color=MUTED, fontsize=8, va="bottom")
 
 
+def dataset_figure():
+    u = pd.read_csv(ROOT / "data/utterances.csv")
+    cols = {"yn": "yes/no\nquestion", "wh": "wh-\nquestion", "neg": "negation", "cond": "conditional",
+            "topic": "topic", "plain": "no grammatical\ntier"}
+    signers = ["Cory", "Jonathan", "Rachel", "Ben"]
+    tot = u.groupby("signer")[list(cols)].sum().loc[signers]
+    bench = u[u.in_benchmark == 1].groupby("signer")[list(cols)].sum().reindex(signers).fillna(0)
+    n = u.groupby("signer").size().loc[signers]
+    fig, ax = plt.subplots(figsize=(7.2, 3.0))
+    v = tot.to_numpy() / n.to_numpy()[:, None]
+    ax.imshow(v, cmap=matplotlib.colors.LinearSegmentedColormap.from_list("b", ["#ffffff", "#2a78d6"]),
+              vmin=0, vmax=0.7, aspect="auto")
+    for i in range(len(signers)):
+        for j in range(len(cols)):
+            c = "white" if v[i, j] > 0.45 else INK
+            ax.text(j, i - 0.12, f"{tot.iat[i, j]}", ha="center", va="center", fontsize=9.5, color=c)
+            ax.text(j, i + 0.24, f"ASL-MTP: {int(bench.iat[i, j])}", ha="center", va="center", fontsize=6.5,
+                    color=c if c == "white" else MUTED)
+    ax.set_xticks(range(len(cols)), list(cols.values()), fontsize=8, color=INK)
+    ax.set_yticks(range(len(signers)), [f"{s}  ({n[s]} utt.)" for s in signers], fontsize=8.5, color=INK)
+    ax.tick_params(length=0)
+    ax.xaxis.tick_top()
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_xticks(np.arange(-0.5, len(cols)), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(signers)), minor=True)
+    ax.grid(which="minor", color="white", lw=2)
+    ax.tick_params(which="minor", length=0)
+    fig.subplots_adjust(top=0.7)
+    fig.text(0.02, 1.0, "The data: 2,127 annotated ASLLRP utterances from four signers", color=INK, fontsize=10.5,
+             va="bottom")
+    fig.text(0.02, 0.88, "Utterances with each nonmanual tier (colour = share of the signer's utterances; one utterance "
+             "can carry several).\nASL-MTP: clips of the translation benchmark (970 in total). "
+             "Ben signs lectures: no yes/no questions.", color=MUTED, fontsize=7.5, va="bottom")
+    fig.savefig(OUT / "dataset.png", dpi=150, bbox_inches="tight", facecolor="white")
+
+
 def yn_figure(probes, face, r):
     fig = plt.figure(figsize=(7.2, 7.6))
     gs = fig.add_gridspec(2, 3, height_ratios=[2.3, 1], hspace=0.5, wspace=0.12)
@@ -127,6 +165,51 @@ def yn_figure(probes, face, r):
     fig.text(0.5, 0.02, "Bands: 95% bootstrap intervals. Bottom: the same three readouts, scored on each held-out "
              "signer alone.", color=MUTED, fontsize=7, ha="center")
     fig.savefig(OUT / "yn_layers.png", dpi=150, bbox_inches="tight", facecolor="white")
+
+
+def yn_controls_figure(probes, face, r):
+    fig, ax = plt.subplots(figsize=(7.2, 3.9))
+    nul = null_hi(probes, r, "yn")
+    layer_style(ax, nul, every=1)
+    v = curve(probes, "yn", "centred", "pooled")
+    ax.plot(L, v[:, 0], color=MUTED, lw=1.2, ls=(0, (3, 2)), label="probe on the layer (all clips), as before", zorder=2)
+    draw(ax, {"matched": curve(probes, "yn", "length-matched", "pooled"),
+              "face_only": curve(face, "yn", "length-matched", "pooled")})
+    ax.set_ylabel(AUROC_Y, color=INK, fontsize=9)
+    ax.set_xlabel(LAYER_X, color=INK, fontsize=8.5)
+    title(fig, ax, "Controls: not clip length, and the face stream alone is enough",
+          "Questions are shorter; matching lengths lowers the deep layers (0.80 to 0.72). "
+          "Feeding SHuBERT only the face keeps 0.81.")
+    ax.legend(loc="lower left", fontsize=7.5, frameon=False, labelcolor=INK, bbox_to_anchor=(0, 0.12))
+    fig.savefig(OUT / "yn_controls.png", dpi=150, bbox_inches="tight", facecolor="white")
+
+
+def functions_figure(probes, face, r):
+    fig, axes = plt.subplots(2, 3, figsize=(9, 6.2), sharey=True)
+    for ax, (t, name) in zip(axes.flat, TASKS.items()):
+        nul = null_hi(probes, r, t)
+        layer_style(ax, nul, ylim=(0.35, 1.0), every=4)
+        draw_refs(ax, probes, t, ["dino_face", "dino_hands"], variant="length-matched", label=False)
+        draw(ax, {"matched": curve(probes, t, "length-matched", "pooled"),
+                  "face_only": curve(face, t, "length-matched", "pooled"),
+                  "residual": curve(r, t, "residual", "pooled")}, ms=3)
+        n = probes[(probes.task == t) & (probes.signer == "pooled")].n_pos.iloc[0]
+        ax.set_title(f"{name} ({n})", color=INK, fontsize=9, loc="left")
+    handles = [plt.Line2D([], [], color=SERIES[k][1], lw=2, marker=SERIES[k][2], ms=4, mec="white")
+               for k in ["matched", "face_only", "residual"]]
+    labels = [SERIES[k][0] for k in ["matched", "face_only", "residual"]]
+    handles += [plt.Line2D([], [], color=MUTED, lw=1, ls=REFS[f][1]) for f in ["dino_face", "dino_hands"]]
+    labels += [f"input reference: {REFS[f][0]}" for f in ["dino_face", "dino_hands"]]
+    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=7.5, frameon=False, labelcolor=INK,
+               bbox_to_anchor=(0.5, -0.1))
+    fig.supylabel(AUROC_Y, color=INK, fontsize=9)
+    fig.supxlabel(LAYER_X, color=INK, fontsize=8.5, y=0.0)
+    fig.suptitle("Six functions per layer: yes/no is strong and facial; negation and fingerspelling need hands and body",
+                 color=INK, fontsize=10.5, x=0.02, ha="left")
+    fig.text(0.02, 0.905, "Each function vs every other utterance (number of positives in brackets), 2,127 utterances, "
+             "trained on all but one signer.\nBands: 95% bootstrap intervals.", color=MUTED, fontsize=7.5)
+    fig.tight_layout(rect=(0, 0, 1, 0.91))
+    fig.savefig(OUT / "functions_layers.png", dpi=150, bbox_inches="tight", facecolor="white")
 
 
 def qmark_figure():
@@ -158,11 +241,64 @@ def qmark_figure():
     fig.savefig(OUT / "qmark.png", dpi=150, bbox_inches="tight", facecolor="white")
 
 
+def repair_figure():
+    rep = pd.read_csv(RES / "repair.csv").set_index(["row", "signer"])
+    lr = pd.read_csv(RES / "lowres.csv")
+    lr = lr[(lr.readout == "pitch_detector") & (lr.row == "low")].rename(columns={"value": "balanced"}).set_index("signer")
+    rows = [("translator (published scores)", rep.xs("published")),
+            ("translator, threshold tuned", rep.xs("published_offset")),
+            ("probe on SHuBERT input layers", rep.xs("detector")), ("measured head pitch (one number)", rep.xs("pitch_detector")),
+            ("head pitch, video at 1/3 resolution", lr)]
+    signers = {"Cory": "o", "Jonathan": "s", "Rachel": "^"}
+    fig, ax = plt.subplots(figsize=(7.2, 3.3))
+    for i, (name, d) in enumerate(rows):
+        y = len(rows) - 1 - i
+        col = MUTED if i < 2 else "#2a78d6"
+        p = d.loc["pooled"]
+        ax.plot([p.lo, p.hi], [y, y], color=col, lw=2, solid_capstyle="round", zorder=2)
+        ax.plot(p.balanced, y, "o", color=col, ms=9, mec="white", mew=1.5, zorder=4)
+        for s, mk in signers.items():
+            ax.plot(d.loc[s, "balanced"], y + 0.28, mk, color=col, ms=4, mfc="none", mew=1, zorder=3)
+        ax.text(1.02, y, f"{p.balanced + 1e-9:.2f}", color=INK, fontsize=8, va="center", ha="left",
+                transform=ax.get_yaxis_transform())
+        ax.text(1.2, y, f"{p.acc_marked:.2f} / {p.acc_unmarked:.2f}", color=MUTED, fontsize=8, va="center",
+                ha="left", transform=ax.get_yaxis_transform())
+    ax.text(1.02, len(rows) - 0.55, "all", color=MUTED, fontsize=7, transform=ax.get_yaxis_transform())
+    ax.text(1.2, len(rows) - 0.55, "right on questions / declaratives", color=MUTED, fontsize=7,
+            transform=ax.get_yaxis_transform())
+    ax.axvline(0.5, color=GRID, lw=1, zorder=0)
+    ax.text(0.505, -0.45, "chance", color=MUTED, fontsize=7, ha="left", va="bottom")
+    ax.axhline(2.5, xmin=-0.5, color=GRID, lw=0.8, clip_on=False)
+    ax.set_yticks(range(len(rows)), [n for n, _ in rows][::-1], color=INK, fontsize=8.5)
+    ax.set_xlim(0.4, 1.0)
+    ax.set_ylim(-0.5, len(rows) - 0.3)
+    ax.set_xlabel("balanced accuracy (mean of the two columns on the right)", color=INK, fontsize=8.5)
+    ax.grid(axis="x", color=GRID, lw=0.6)
+    ax.set_axisbelow(True)
+    axes_style(ax)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    handles = [plt.Line2D([], [], color=MUTED, marker="o", ls="-", ms=6, mec="white")]
+    handles += [plt.Line2D([], [], color=MUTED, marker=m, ls="", ms=4, mfc="none") for m in signers.values()]
+    fig.legend(handles, ["all signers, 95% interval"] + [f"tested on {s}" for s in signers], loc="lower left",
+               fontsize=7, frameon=False, labelcolor=MUTED, ncol=4, bbox_to_anchor=(0.0, 0.0))
+    fig.suptitle("Head pitch repairs the yes/no choice the translator gets wrong", color=INK, fontsize=10.5,
+                 x=0.02, ha="left")
+    fig.text(0.02, 0.89, "For each benchmark clip: question or declarative translation? 150 questions, 135 "
+             "declaratives. Detectors alone; fused with the translator they score the same.", color=MUTED, fontsize=7)
+    fig.subplots_adjust(left=0.33, right=0.68, top=0.82, bottom=0.24)
+    fig.savefig(OUT / "repair.png", dpi=150, bbox_inches="tight", facecolor="white")
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     probes, face, r = load()
+    dataset_figure()
     yn_figure(probes, face, r)
+    yn_controls_figure(probes, face, r)
+    functions_figure(probes, face, r)
     qmark_figure()
+    repair_figure()
     for f in sorted(OUT.glob("*.png")):
         print(f, f.stat().st_size // 1024, "KB")
 
