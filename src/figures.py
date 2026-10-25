@@ -212,6 +212,38 @@ def functions_figure(probes, face, r):
     fig.savefig(OUT / "functions_layers.png", dpi=150, bbox_inches="tight", facecolor="white")
 
 
+CLIP = {"measured": ("measured (MediaPipe)", INK, "-", 2.2), "L0": ("decoded from the input", "#1baf7a", "-", 1.4),
+        "L6": ("from layer 6", "#eda100", (0, (4, 2)), 1.4), "L12": ("from layer 12", "#2a78d6", (0, (1, 1.2)), 1.6)}
+
+
+def clips_figure():
+    d = pd.read_csv(RES / "clip_pitch.csv")
+    fig, axes = plt.subplots(3, 1, figsize=(7.2, 6.8), sharey=True)
+    for ax, (s, c) in zip(axes, d.groupby("signer")):
+        dur = c.n.iloc[0] / 29.97
+        ax.axvspan(c.start.iloc[0] * dur, c.end.iloc[0] * dur, color=NULL, lw=0, zorder=0)
+        ax.axhline(0, color=GRID, lw=0.8, zorder=0)
+        for k, (name, col, ls, lw) in CLIP.items():
+            ax.plot(c.time, c[k], color=col, ls=ls, lw=lw, label=name, zorder=3 if k == "measured" else 2)
+        ax.set_xlim(0, dur)
+        ax.set_title(f"{s}, yes/no clip {c.dai_id.iloc[0]}", color=INK, fontsize=9, loc="left")
+        axes_style(ax)
+    h, lab = axes[0].get_legend_handles_labels()
+    h.append(plt.Rectangle((0, 0), 1, 1, color=NULL))
+    lab.append("question part (annotation, approximate)")
+    fig.legend(h, lab, loc="upper left", ncol=3, fontsize=7.5, frameon=False, labelcolor=INK,
+               bbox_to_anchor=(0.06, 0.975))
+    axes[-1].set_xlabel("time (s)", color=INK, fontsize=9)
+    fig.supylabel("head pitch (z-score within signer; up = head tilted forward)", color=INK, fontsize=9)
+    fig.suptitle("Head pitch read out of SHuBERT follows the real head, frame by frame", color=INK, fontsize=10.5,
+                 x=0.06, ha="left", y=1.0)
+    fig.text(0.5, -0.01, "Decoders: linear (ridge) on single frames of a layer, trained on the other two signers, "
+             "never told which clips are questions.\nShaded span: y/n question tier, mapped from gloss columns to "
+             "frames proportionally.", color=MUTED, fontsize=7, ha="center", va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.945))
+    fig.savefig(OUT / "yn_clips.png", dpi=150, bbox_inches="tight", facecolor="white")
+
+
 def qmark_figure():
     d = pd.read_csv(RES / "qmark.csv").set_index("condition")
     conds = {"AC": "full video", "NF": "face hidden", "NH": "hands hidden", "NHB": "only the face visible"}
@@ -297,6 +329,7 @@ def main():
     yn_figure(probes, face, r)
     yn_controls_figure(probes, face, r)
     functions_figure(probes, face, r)
+    clips_figure()
     qmark_figure()
     repair_figure()
     for f in sorted(OUT.glob("*.png")):
