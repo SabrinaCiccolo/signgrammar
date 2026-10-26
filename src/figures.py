@@ -102,6 +102,11 @@ def title(fig, ax, text, sub):
     ax.text(0, 1.02, sub, transform=ax.transAxes, color=MUTED, fontsize=8, va="bottom")
 
 
+def null_note(ax, nul, x=12.4, y=0.41):
+    ax.text(x, y, f"grey band: also reached with shuffled labels (up to {nul:.2f}), so not significant",
+            color=MUTED, fontsize=7, ha="right", va="bottom")
+
+
 def dataset_figure():
     u = pd.read_csv(ROOT / "data/utterances.csv")
     cols = {"yn": "yes/no\nquestion", "wh": "wh-\nquestion", "neg": "negation", "cond": "conditional",
@@ -149,6 +154,7 @@ def yn_figure(probes, face, r):
     ser = lambda s: {"direct": curve(probes, "yn", "centred", s), "decoded": decoded(probes, s),
                      "residual": curve(r, "yn", "residual", s)}
     draw(ax, ser("pooled"))
+    null_note(ax, nul)
     ax.set_ylabel(AUROC_Y, color=INK, fontsize=9)
     ax.set_xlabel(LAYER_X, color=INK, fontsize=8.5)
     title(fig, ax, "Every SHuBERT layer tells yes/no questions apart, through head pitch",
@@ -175,6 +181,7 @@ def yn_controls_figure(probes, face, r):
     ax.plot(L, v[:, 0], color=MUTED, lw=1.2, ls=(0, (3, 2)), label="probe on the layer (all clips), as before", zorder=2)
     draw(ax, {"matched": curve(probes, "yn", "length-matched", "pooled"),
               "face_only": curve(face, "yn", "length-matched", "pooled")})
+    null_note(ax, nul)
     ax.set_ylabel(AUROC_Y, color=INK, fontsize=9)
     ax.set_xlabel(LAYER_X, color=INK, fontsize=8.5)
     title(fig, ax, "Controls: not clip length, and the face stream alone is enough",
@@ -200,6 +207,8 @@ def functions_figure(probes, face, r):
     labels = [SERIES[k][0] for k in ["matched", "face_only", "residual"]]
     handles += [plt.Line2D([], [], color=MUTED, lw=1, ls=REFS[f][1]) for f in ["dino_face", "dino_hands"]]
     labels += [f"input reference: {REFS[f][0]}" for f in ["dino_face", "dino_hands"]]
+    handles.append(plt.Rectangle((0, 0), 1, 1, color=NULL))
+    labels.append("also reached with shuffled labels (not significant)")
     fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=7.5, frameon=False, labelcolor=INK,
                bbox_to_anchor=(0.5, -0.1))
     fig.supylabel(AUROC_Y, color=INK, fontsize=9)
