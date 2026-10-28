@@ -1,11 +1,16 @@
 # Yes/no questions on the face: what a sign language encoder and translator see
 
-Probing SHuBERT, a public pretrained American Sign Language (ASL) encoder, for the grammar that ASL marks on the face
-and head, and testing a published SHuBERT + ByT5 translator on the yes/no items of the ASL-MTP benchmark.
+In American Sign Language (ASL) a yes/no question is often marked only by the face and head. This project probes
+**SHuBERT**, a public pretrained ASL encoder, for six grammatical functions on 2,127 annotated utterances of the ASLLRP
+corpus, and tests a published **SHuBERT + ByT5** translator on the yes/no items of the **ASL-MTP** benchmark.
+In short, the translator does not read the face, but the encoder keeps the yes/no cue in every layer, mostly as head
+pitch (the forward tilt of the head). That one measured number repairs the translator's yes/no choice: balanced
+accuracy goes from 0.52 to 0.85.
 
 ## Running
 
-Requires Linux, an NVIDIA GPU and [uv](https://docs.astral.sh/uv/). Everything is written to `work/`.
+Requires Linux, an NVIDIA GPU, [uv](https://docs.astral.sh/uv/) and about 25 GB of disk. Everything is written to
+`work/` (or to `$SIGNGRAMMAR_WORK`).
 
 ```bash
 git clone https://github.com/ShesterG/SHuBERT.git work/SHuBERT
@@ -16,17 +21,14 @@ uv venv -p 3.10 .venv-shubert && uv pip install -p .venv-shubert -r requirements
 uv pip install -p .venv-shubert --no-build-isolation -e work/SHuBERT/fairseq
 
 .venv/bin/python -c "from huggingface_hub import hf_hub_download as get; [get('ShesterG/SHuBERT', 'models/' + f, local_dir='work') for f in ['checkpoint_836_400000.pt', 'dinov2face.pth', 'dinov2hand.pth', 'yolov8n.pt', 'face_landmarker_v2_with_blendshapes.task', 'hand_landmarker.task']]"
+
+./run.sh
 ```
 
-Then, from the repository root:
-
-```bash
-.venv/bin/python src/benchmark.py
-.venv/bin/python src/corpus.py parse && .venv/bin/python src/corpus.py freeze && .venv/bin/python src/corpus.py download
-for s in bbox pose face hands body dino_face dino_hands; do .venv/bin/python src/extract.py $s; done
-.venv-shubert/bin/python src/shubert_states.py
-.venv/bin/python src/head_pose.py
-```
+`run.sh` rebuilds the tables in `data/`, downloads the 2,127 videos from the public DAI site (one request at a time),
+extracts the features, runs the analyses into `results/` and draws `figures/`. To redraw the figures from the
+included results only: `.venv/bin/python src/figures.py`. MediaPipe body landmarks vary slightly between runs, so a
+full rerun from the videos matches the included results closely but not to the last digit.
 
 ## Data and models
 
