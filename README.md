@@ -7,6 +7,49 @@ In short, the translator does not read the face, but the encoder keeps the yes/n
 pitch (the forward tilt of the head). That one measured number repairs the translator's yes/no choice: balanced
 accuracy goes from 0.52 to 0.85.
 
+## Results
+
+![Landmarks of a yes/no question and its head pitch](figures/yn_clip.gif)
+
+*A yes/no question by one signer, drawn from MediaPipe landmarks only. The head tilts forward during the question,
+and a linear readout of SHuBERT's last layer, never told which clips are questions, follows it.*
+
+![The data](figures/dataset.png)
+
+*The data: utterances that carry each nonmanual tier, per signer. Yes/no questions come from three signers. Every
+probe is trained on the other signers and tested on an unseen one.*
+
+![Translator question marks](figures/qmark.png)
+
+*The published translator ends a yes/no translation with "?" only when a manual sign (QMwg, YOU) marks the question.
+Questions marked only on the face get a "?" as rarely as declaratives (1.5%).*
+
+![yes/no per layer](figures/yn_layers.png)
+
+*Every SHuBERT layer separates yes/no questions from other utterances (AUROC 0.80–0.90). Head pitch decoded from the
+layer does as well. Nothing is left once the measured face and head gesture is removed: the encoder keeps the
+gesture, not a separate grammatical code.*
+
+![Controls](figures/yn_controls.png)
+
+*Controls: questions are shorter, but the probe still works on clips matched in length. Feeding SHuBERT the face
+stream alone is enough.*
+
+![Six functions per layer](figures/functions_layers.png)
+
+*Six functions per layer. Yes/no is read from the face alone. Negation and fingerspelling are read better when the
+hands are visible.*
+
+![Measured and decoded head pitch](figures/yn_clips.png)
+
+*Head pitch measured with MediaPipe and decoded from SHuBERT layers 0, 6 and 12, frame by frame, on one yes/no clip
+per signer.*
+
+![Repair of the yes/no choice](figures/repair.png)
+
+*For each benchmark clip: question or declarative translation? The translator is at chance level (0.52). A probe on
+SHuBERT and measured head pitch alone reach 0.84–0.85. Head pitch still reaches 0.87 on video at 1/3 resolution.*
+
 ## Running
 
 Requires Linux, an NVIDIA GPU, [uv](https://docs.astral.sh/uv/) and about 25 GB of disk. Everything is written to
