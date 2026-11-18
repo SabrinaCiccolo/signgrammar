@@ -2,11 +2,10 @@
 
 In American Sign Language (ASL) a yes/no question is often marked only by the face and head. This project probes
 **SHuBERT**, a public pretrained ASL encoder, for six grammatical functions on 2,127 annotated utterances of the ASLLRP
-corpus, and tests a published **SHuBERT + ByT5** translator on the yes/no items of the **ASL-MTP** benchmark.
-In short, the translator does not read the face, but the encoder still carries the yes/no cue in every layer, mostly
-as head pitch (the forward tilt of the head). That one measured number repairs the translator's choice between the
-question and the statement translation on the benchmark (not its generated translations): balanced accuracy goes from
-0.52 to 0.85.
+corpus and tests a published **SHuBERT + ByT5** translator on the yes/no items of the **ASL-MTP** benchmark.
+In short, the encoder carries the yes/no cue in every layer, mostly as head pitch (the forward tilt of the head).
+That one measured number improves the translator's choice between the question and the statement translation on the
+benchmark (not its generated translations): balanced accuracy goes from 0.52 to 0.85.
 
 ## Results
 
@@ -20,16 +19,10 @@ and a linear readout of SHuBERT's last layer, never told which clips are questio
 *The data: utterances that carry each nonmanual tier, per signer. Yes/no questions come from three signers. Every
 probe is trained on the other signers and tested on an unseen one.*
 
-![Translator question marks](figures/qmark.png)
-
-*The published translator ends a yes/no translation with "?" only when a manual sign (QMwg, YOU) marks the question.
-Questions marked only on the face get a "?" as rarely as declaratives (1.5%).*
-
 ![yes/no per layer](figures/yn_layers.png)
 
 *Every SHuBERT layer separates yes/no questions from other utterances (AUROC 0.90 at the input, 0.80 at layer 12).
-Head pitch decoded from the layer does as well. Nothing is left once the measured face and head gesture is removed: no
-evidence of a grammatical code beyond the gesture.*
+Head pitch decoded from the layer does as well: the cue the layers carry is the measured face and head gesture.*
 
 ![Controls](figures/yn_controls.png)
 
@@ -46,17 +39,17 @@ hands are visible.*
 *Head pitch measured with MediaPipe and decoded from SHuBERT layers 0, 6 and 12, frame by frame, on one yes/no clip
 per signer.*
 
-![Repair of the yes/no choice](figures/repair.png)
+![Question or statement choice](figures/repair.png)
 
-*For each benchmark clip: question or declarative translation? The translator is at chance level (0.52). A probe on
-SHuBERT and measured head pitch alone reach 0.84–0.85. Head pitch still reaches 0.87 on video at 1/3 resolution.*
+*For each benchmark clip: question or declarative translation? The published scores give 0.52. A probe on SHuBERT and
+measured head pitch alone reach 0.84–0.85. Head pitch still reaches 0.87 on video at 1/3 resolution.*
 
 ## Limits
 
 - Yes/no questions come from three signers, all studio recordings of one corpus; every result is leave-one-signer-out
   over them.
 - The encoder is the public pretrained SHuBERT, not the fine-tuned encoder inside the translator.
-- The repair is a two-way choice on the published scores, not better generated translations; head pitch is z-scored
+- The improvement is a two-way choice on the published scores, not better generated translations; head pitch is z-scored
   within each signer over all of that signer's clips, without labels.
 - The MediaPipe brow measure matches the corpus brow annotations only weakly, so "mostly head pitch" is relative to
   what can be measured.
